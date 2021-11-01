@@ -12,6 +12,7 @@
 #include "pic2.h"
 #include "pic3.h"
 
+#include "esp_adc_cal.h"
 #include <SPI.h>
 #include <SD.h>
 
@@ -25,6 +26,7 @@
 #define TIME_TO_SLEEP  10        /* Time ESP32 will go to sleep (in seconds) */
 
 uint8_t *framebuffer;
+int vref = 1100;
 
 // Track which file to draw now
 RTC_DATA_ATTR int bootCount = 0;
@@ -36,6 +38,14 @@ void setup()
   // Init SD card
   SPI.begin(SD_SCLK, SD_MISO, SD_MOSI);
   int sds = SD.begin(SD_CS);
+
+  // Correct the ADC reference voltage
+  esp_adc_cal_characteristics_t adc_chars;
+  esp_adc_cal_value_t val_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
+  if (val_type == ESP_ADC_CAL_VAL_EFUSE_VREF) {
+    Serial.printf("eFuse Vref:%u mV\n", adc_chars.vref);
+    vref = adc_chars.vref;
+  }
 
   epd_init();
 
@@ -84,9 +94,13 @@ void setup()
 
   // on-screen log
   char logBuf[128];
-  uint16_t vRaw = analogRead(BATT_PIN);
 
-  sprintf(logBuf, "b# %d, v: %d, sd: %d, %d", bootCount, vRaw, sds, SD.cardType());
+  epd_poweron();
+
+  uint16_t vRaw = analogRead(BATT_PIN);
+  float battery_voltage = ((float)vRaw / 4095.0) * 2.0 * 3.3 * (vref / 1000.0);
+
+  sprintf(logBuf, "b# %d, v: %.2f, sd: %d, %d", bootCount, battery_voltage, sds, SD.cardType());
   Serial.println(logBuf);
 
   epd_fill_rect(100, 460, 760, 50, 0xff, framebuffer);
@@ -97,7 +111,7 @@ void setup()
   // ----------------
 
   // Draw to screen
-  epd_poweron();
+  //  epd_poweron();
   epd_clear();
   epd_draw_grayscale_image(epd_full_screen(), framebuffer);
   epd_poweroff();
